@@ -16,8 +16,26 @@ export const DEFAULT_SETTINGS = Object.freeze({
   temperature: 0.8,
   maxTokens: 2048,
   topP: 1,
+  thinkingMode: 'auto',
   rememberKey: true
 });
+
+export const THINKING_MODES = Object.freeze(['auto', 'enabled', 'disabled']);
+
+export function normalizeThinkingMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  return THINKING_MODES.includes(mode) ? mode : 'auto';
+}
+
+/**
+ * 返回需要附加到 /chat/completions 请求体里的思考模式参数。
+ * auto 不发送，交给模型/服务端决定；enabled/disabled 显式覆盖。
+ */
+export function buildThinkingRequest(mode) {
+  const normalized = normalizeThinkingMode(mode);
+  if (normalized === 'auto') return {};
+  return { thinking: { type: normalized } };
+}
 
 export const DEFAULT_PARTICIPANTS = Object.freeze({
   A: { name: 'AI-A' },
@@ -135,6 +153,7 @@ export function createConversation(input = {}) {
     startPrompt: String(input.startPrompt || '').trim(),
     participants: { A: { name: nameA }, B: { name: nameB } },
     model: String(input.model || DEFAULT_SETTINGS.model).trim(),
+    thinkingMode: normalizeThinkingMode(input.thinkingMode),
     params: {
       temperature: clampNumber(params.temperature, 0, 2, DEFAULT_SETTINGS.temperature),
       maxTokens: clampNumber(params.maxTokens, 1, 393216, DEFAULT_SETTINGS.maxTokens),
@@ -169,6 +188,7 @@ export function normalizeConversation(raw) {
     startPrompt: raw.startPrompt,
     participants: raw.participants,
     model: raw.model,
+    thinkingMode: raw.thinkingMode,
     params: raw.params,
     maxTurns: raw.maxTurns,
     delayMs: raw.delayMs
@@ -219,6 +239,7 @@ export function normalizeSettings(raw) {
     temperature: clampNumber(source.temperature, 0, 2, DEFAULT_SETTINGS.temperature),
     maxTokens: clampNumber(source.maxTokens, 1, 393216, DEFAULT_SETTINGS.maxTokens),
     topP: clampNumber(source.topP, 0, 1, DEFAULT_SETTINGS.topP),
+    thinkingMode: normalizeThinkingMode(source.thinkingMode),
     rememberKey: source.rememberKey !== false
   };
 }
@@ -449,7 +470,8 @@ export function computeBalanceSpend(baseline, infos) {
   return rows.length > 0 ? rows : null;
 }
 
-export function toExportJson(conversation) {  return JSON.stringify(
+export function toExportJson(conversation) {
+  return JSON.stringify(
     {
       exportedAt: new Date().toISOString(),
       app: 'EchoLab / 回响',
@@ -469,6 +491,7 @@ export function toExportMarkdown(conversation) {
   lines.push(`- 时间：${new Date(conversation.createdAt).toLocaleString('zh-CN')}`);
   lines.push(`- 启动提示词：${conversation.startPrompt}`);
   lines.push(`- 双方：${conversation.participants.A.name} / ${conversation.participants.B.name}`);
+  lines.push(`- 思考模式：${conversation.thinkingMode || 'auto'}`);
   lines.push(`- 发言条数：${conversation.turns.length}`);
   lines.push('');
   lines.push('---');
@@ -478,7 +501,7 @@ export function toExportMarkdown(conversation) {
     lines.push(`## ${name} · 第 ${conversation.turns.indexOf(turn) + 1} 条`);
     lines.push('');
     if (turn.reasoning) {
-      lines.push('<details><summary>思考过程</summary>');
+      lines.push('<details><summary>思维链</summary>');
       lines.push('');
       lines.push(turn.reasoning);
       lines.push('');

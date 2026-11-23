@@ -5,6 +5,7 @@ import {
   DEFAULT_SETTINGS,
   accumulateUsage,
   buildMessages,
+  buildThinkingRequest,
   computeBalanceSpend,
   contextSummary,
   createConversation,
@@ -19,6 +20,7 @@ import {
   nextSpeaker,
   normalizeConversation,
   normalizeSettings,
+  normalizeThinkingMode,
   normalizeUsage,
   otherSpeaker,
   parseBalancePayload,
@@ -128,9 +130,25 @@ test('createConversation 会修剪、夹紧参数并生成可读标题', () => {
   assert.equal(conv.params.temperature, 2);
   assert.equal(conv.params.maxTokens, 1);
   assert.equal(conv.params.topP, 1);
+  assert.equal(conv.thinkingMode, 'auto');
   assert.equal(conv.status, 'idle');
   assert.deepEqual(conv.usage, createUsage());
   assert.equal(isLimitReached(conv), false);
+});
+
+test('思考模式会被规范化，并生成正确的请求参数', () => {
+  assert.equal(normalizeThinkingMode('ENABLED'), 'enabled');
+  assert.equal(normalizeThinkingMode('disabled'), 'disabled');
+  assert.equal(normalizeThinkingMode('bogus'), 'auto');
+  assert.deepEqual(buildThinkingRequest('auto'), {});
+  assert.deepEqual(buildThinkingRequest('enabled'), { thinking: { type: 'enabled' } });
+  assert.deepEqual(buildThinkingRequest('disabled'), { thinking: { type: 'disabled' } });
+
+  const conv = createConversation({ startPrompt: 'x', thinkingMode: 'enabled' });
+  assert.equal(conv.thinkingMode, 'enabled');
+  const restored = normalizeConversation({ ...conv, thinkingMode: 'disabled' });
+  assert.equal(restored.thinkingMode, 'disabled');
+  assert.equal(normalizeConversation({ ...conv, thinkingMode: 'bogus' }).thinkingMode, 'auto');
 });
 
 test('normalizeConversation 兼容旧数据、过滤坏记录并恢复暂停状态', () => {
@@ -172,8 +190,10 @@ test('normalizeSettings 对缺失/越界值使用安全默认值', () => {
   assert.equal(settings.temperature, 0);
   assert.equal(settings.maxTokens, DEFAULT_SETTINGS.maxTokens);
   assert.equal(settings.topP, 1);
+  assert.equal(settings.thinkingMode, 'auto');
   assert.equal(settings.rememberKey, false);
   assert.equal(normalizeSettings(null).rememberKey, true);
+  assert.equal(normalizeSettings({ thinkingMode: 'enabled' }).thinkingMode, 'enabled');
 });
 
 test('usage 规范化和累计', () => {

@@ -10,6 +10,7 @@ import {
   MIN_TURNS_LIMIT,
   accumulateUsage,
   buildMessages,
+  buildThinkingRequest,
   contextSummary,
   computeBalanceSpend,
   createConversation,
@@ -24,6 +25,7 @@ import {
   nextSpeaker,
   normalizeConversation,
   normalizeSettings,
+  normalizeThinkingMode,
   otherSpeaker,
   parseBalancePayload,
   toExportMarkdown,
@@ -87,6 +89,7 @@ const els = {
   maxTurns: $('maxTurns'),
   delayMs: $('delayMs'),
   modelInput: $('modelInput'),
+  thinkingMode: $('thinkingMode'),
   temperature: $('temperature'),
   maxTokens: $('maxTokens'),
   topP: $('topP'),
@@ -131,6 +134,7 @@ const els = {
   settingApiKey: $('settingApiKey'),
   settingRemember: $('settingRemember'),
   settingModel: $('settingModel'),
+  settingThinkingMode: $('settingThinkingMode'),
   settingTemperature: $('settingTemperature'),
   settingMaxTokens: $('settingMaxTokens'),
   settingTopP: $('settingTopP'),
@@ -207,6 +211,22 @@ function formatDelay(ms) {
   if (number <= 0) return '无间隔';
   if (number < 1000) return `${number}ms`;
   return `${(number / 1000).toFixed(number % 1000 === 0 ? 0 : 1)}s`;
+}
+
+function formatCharCount(value) {
+  const length = String(value || '').length;
+  return `${new Intl.NumberFormat('zh-CN').format(length)} 字`;
+}
+
+function thinkingLabel(mode) {
+  switch (normalizeThinkingMode(mode)) {
+    case 'enabled':
+      return '开启';
+    case 'disabled':
+      return '关闭';
+    default:
+      return '自动';
+  }
 }
 
 function hostOf(input) {
@@ -481,8 +501,10 @@ function renderExperimentHeader(conv) {
   const modelPill = el('span', 'exp-pill', conv.model);
   const nameA = el('span', 'exp-pill is-a', displayName(conv, 'A'));
   const nameB = el('span', 'exp-pill is-b', displayName(conv, 'B'));
+  const thinkingPill = el('span', 'exp-pill is-thinking', `思维链 ${thinkingLabel(conv.thinkingMode)}`);
+  thinkingPill.title = '思考模式：自动跟随模型；开启会请求 reasoning_content，仅部分模型/端点支持。';
   const delayPill = el('span', 'exp-pill', formatDelay(conv.delayMs));
-  els.experimentPills.append(modelPill, nameA, nameB, delayPill);
+  els.experimentPills.append(modelPill, nameA, nameB, thinkingPill, delayPill);
 
   els.promptText.textContent = conv.startPrompt;
   els.promptQuote.title = conv.startPrompt;
@@ -537,7 +559,10 @@ function buildMessageElement(conv, turn, index) {
     const details = document.createElement('details');
     details.className = 'reasoning';
     const summary = document.createElement('summary');
-    summary.textContent = '思考过程';
+    summary.append(
+      el('span', 'reasoning-label', '思维链'),
+      el('span', 'reasoning-meta', `${formatCharCount(turn.reasoning)} · 模型原始输出`)
+    );
     const body = el('div', 'reasoning-body', turn.reasoning);
     details.append(summary, body);
     card.append(details);
@@ -789,7 +814,10 @@ function showStreamingCard(conv, speaker, index) {
         <span class="message-time">${formatClock(Date.now())}</span>
       </div>
       <details class="reasoning" hidden>
-        <summary>思考过程</summary>
+        <summary>
+          <span class="reasoning-label">思维链</span>
+          <span class="reasoning-meta">等待模型输出…</span>
+        </summary>
         <div class="reasoning-body"></div>
       </details>
       <div class="message-body"><div class="stream-placeholder">正在等待首个 token…</div></div>
@@ -804,6 +832,7 @@ function showStreamingCard(conv, speaker, index) {
     body: article.querySelector('.message-body'),
     reasoning: article.querySelector('.reasoning'),
     reasoningBody: article.querySelector('.reasoning-body'),
+    reasoningMeta: article.querySelector('.reasoning-meta'),
     content: '',
     reasoningText: '',
     timer: null,
@@ -828,6 +857,9 @@ function scheduleStreamingPaint() {
     if (stream.reasoningText) {
       stream.reasoning.hidden = false;
       stream.reasoningBody.textContent = stream.reasoningText;
+      stream.reasoningMeta.textContent = stream.content
+        ? `${formatCharCount(stream.reasoningText)} · 模型原始输出`
+        : `${formatCharCount(stream.reasoningText)} · 生成中…`;
     }
     if (state.pinned) scrollToBottom(false, true);
   }, delay);
@@ -1203,7 +1235,8 @@ async function generateTurn(conv, speaker, run) {
         stream: true,
         temperature: conv.params.temperature,
         maxTokens: conv.params.maxTokens,
-        topP: conv.params.topP
+        topP: conv.params.topP,
+        ...buildThinkingRequest(conv.thinkingMode)
       }),
       signal: controller.signal
     });
@@ -1609,6 +1642,7 @@ function populateSettingsForm() {
   els.settingApiKey.value = state.apiKey;
   els.settingRemember.checked = state.settings.rememberKey;
   els.settingModel.value = state.settings.model;
+  els.settingThinkingMode.value = normalizeThinkingMode(state.settings.thinkingMode);
   els.settingTemperature.value = String(state.settings.temperature);
   els.settingMaxTokens.value = String(state.settings.maxTokens);
   els.settingTopP.value = String(state.settings.topP);
@@ -1669,6 +1703,7 @@ function saveSettingsFromForm() {
   state.settings = normalizeSettings({
     baseUrl,
     model: els.settingModel.value.trim() || DEFAULT_SETTINGS.model,
+    thinkingMode: els.settingThinkingMode.value,
     temperature: els.settingTemperature.value,
     maxTokens: els.settingMaxTokens.value,
     topP: els.settingTopP.value,
@@ -1697,6 +1732,7 @@ function saveSettingsFromForm() {
 
 function syncNewFormDefaults() {
   els.modelInput.value = state.settings.model;
+  els.thinkingMode.value = normalizeThinkingMode(state.settings.thinkingMode);
   els.temperature.value = String(state.settings.temperature);
   els.maxTokens.value = String(state.settings.maxTokens);
   els.topP.value = String(state.settings.topP);
@@ -1728,7 +1764,8 @@ async function testConnection() {
         messages: [{ role: 'user', content: 'ping' }],
         stream: false,
         temperature: 0,
-        maxTokens: 32
+        maxTokens: 32,
+        ...buildThinkingRequest(els.settingThinkingMode.value)
       })
     });
     const text = await response.text();
@@ -1834,6 +1871,7 @@ function handleNewSubmit(event) {
       B: { name: els.nameB.value.trim() || 'AI-B' }
     },
     model,
+    thinkingMode: els.thinkingMode.value,
     params: {
       temperature: els.temperature.value,
       maxTokens: els.maxTokens.value,

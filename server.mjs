@@ -270,8 +270,12 @@ async function handleChat(req, res) {
   if (topP !== undefined) upstreamPayload.top_p = topP;
   if (maxTokens !== undefined) upstreamPayload.max_tokens = maxTokens;
   if (stream) upstreamPayload.stream_options = { include_usage: true };
-  if (typeof body.thinking === 'object' && body.thinking) {
-    upstreamPayload.thinking = body.thinking;
+  const thinkingType = body.thinking && typeof body.thinking === 'object' ? body.thinking.type : undefined;
+  if (thinkingType === 'enabled' || thinkingType === 'disabled') {
+    upstreamPayload.thinking = { type: thinkingType };
+  }
+  if (typeof body.reasoning_effort === 'string' && ['low', 'high', 'max'].includes(body.reasoning_effort)) {
+    upstreamPayload.reasoning_effort = body.reasoning_effort;
   }
 
   const controller = new AbortController();

@@ -51,6 +51,8 @@ test('index.html 引入前端模块且模块文件可被解析', async () => {
   assert.match(html, /id="settingsDialog"/);
   assert.match(html, /id="confirmDialog"/);
   assert.match(html, /id="toastStack"/);
+  assert.match(html, /id="thinkingMode"/);
+  assert.match(html, /id="settingThinkingMode"/);
 
   for (const file of ['app.js', 'engine.js', 'markdown.js']) {
     const source = await readFile(path.join(ROOT, 'public', file), 'utf8');

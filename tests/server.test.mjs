@@ -176,7 +176,9 @@ test('聊天代理透传 SSE、附加 include_usage 并原样转发鉴权头', a
       stream: true,
       temperature: 0.3,
       maxTokens: 64,
-      topP: 0.9
+      topP: 0.9,
+      thinking: { type: 'enabled' },
+      reasoning_effort: 'high'
     })
   });
 
@@ -196,6 +198,8 @@ test('聊天代理透传 SSE、附加 include_usage 并原样转发鉴权头', a
   assert.equal(lastChatRequest.body.temperature, 0.3);
   assert.equal(lastChatRequest.body.max_tokens, 64);
   assert.equal(lastChatRequest.body.top_p, 0.9);
+  assert.deepEqual(lastChatRequest.body.thinking, { type: 'enabled' });
+  assert.equal(lastChatRequest.body.reasoning_effort, 'high');
   assert.deepEqual(lastChatRequest.body.messages, [{ role: 'user', content: '启动词' }]);
 });
 

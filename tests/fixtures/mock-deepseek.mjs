@@ -45,6 +45,7 @@ const server = http.createServer(async (req, res) => {
     const index = chatRequests.length + 1;
     const speakerTurn = body.messages.filter((message) => message.role === 'assistant').length + 1;
     const reply = `这是第 ${index} 次请求的回答（本侧第 ${speakerTurn} 条）。上下文共有 ${body.messages.length} 条消息。`;
+    const reasoning = `先确认本侧上下文：当前收到 ${body.messages.length} 条消息。再组织第 ${index} 次回答，保持与前文一致。`;
     chatRequests.push({
       path: req.url,
       auth: req.headers.authorization,
@@ -55,7 +56,7 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, {
         id: `mock-${index}`,
         model: body.model,
-        choices: [{ message: { content: reply }, finish_reason: 'stop' }],
+        choices: [{ message: { content: reply, reasoning_content: reasoning }, finish_reason: 'stop' }],
         usage: { prompt_tokens: 10 + index, completion_tokens: 8, total_tokens: 18 + index }
       });
       return;
@@ -67,10 +68,17 @@ const server = http.createServer(async (req, res) => {
       Connection: 'keep-alive'
     });
     const pieces = [`这是第 ${index} 次请求`, `的回答（本侧第 ${speakerTurn} 条）。`, `上下文共有 ${body.messages.length} 条消息。`];
+    const reasoningPieces = [`先确认本侧上下文：当前收到 ${body.messages.length} 条消息。`, `再组织第 ${index} 次回答，保持与前文一致。`];
     let cursor = 0;
     const timer = setInterval(() => {
-      if (cursor < pieces.length) {
-        res.write(`data: ${JSON.stringify({ id: `mock-${index}`, model: body.model, choices: [{ delta: { content: pieces[cursor] } }] })}\n\n`);
+      if (cursor < reasoningPieces.length) {
+        res.write(`data: ${JSON.stringify({ id: `mock-${index}`, model: body.model, choices: [{ delta: { reasoning_content: reasoningPieces[cursor] } }] })}\n\n`);
+        cursor += 1;
+        return;
+      }
+      const contentIndex = cursor - reasoningPieces.length;
+      if (contentIndex < pieces.length) {
+        res.write(`data: ${JSON.stringify({ id: `mock-${index}`, model: body.model, choices: [{ delta: { content: pieces[contentIndex] } }] })}\n\n`);
         cursor += 1;
         return;
       }

@@ -106,6 +106,7 @@ async function main() {
       temperature: 0.7,
       maxTokens: 256,
       topP: 1,
+      thinkingMode: 'enabled',
       rememberKey: true
     }));
     localStorage.setItem('echolab.apiKey.local', 'mock-api-key');
@@ -114,6 +115,8 @@ async function main() {
   await cdp('Page.reload', { ignoreCache: true });
   await sleep(900);
   await waitFor(`document.readyState === 'complete' && !!document.getElementById('newForm')`, '页面初始化');
+  // 清掉页面重载前（服务尚未启动时）遗留的控制台日志。
+  consoleErrors.length = 0;
 
   const initial = await evaluate(`({
     title: document.title,
@@ -135,6 +138,7 @@ async function main() {
     query('nameA').value = '观测者 A';
     query('nameB').value = '观测者 B';
     query('modelInput').value = 'deepseek-chat';
+    query('thinkingMode').value = 'enabled';
     document.getElementById('newForm').requestSubmit();
     return true;
   })()`);
@@ -155,7 +159,18 @@ async function main() {
     spend: document.getElementById('statSpend').textContent,
     balance: document.getElementById('balanceValue').textContent,
     prompt: document.getElementById('promptText').textContent,
-    pills: document.getElementById('experimentPills').textContent
+    pills: document.getElementById('experimentPills').textContent,
+    reasoningPanels: document.querySelectorAll('#transcript .message details.reasoning').length,
+    firstReasoning: (() => {
+      const details = document.querySelector('#transcript .message details.reasoning');
+      if (!details) return null;
+      details.open = true;
+      return {
+        summary: details.querySelector('summary')?.textContent.trim(),
+        body: details.querySelector('.reasoning-body')?.textContent.trim(),
+        inMainBody: Boolean(document.querySelector('#transcript .message-body')?.textContent.includes('先确认本侧上下文'))
+      };
+    })()
   })`);
   console.log('mid:', JSON.stringify(mid, null, 2));
   if (!mid.status.includes('运行') && !mid.status.includes('暂停') && !mid.status.includes('等待')) {
@@ -168,6 +183,12 @@ async function main() {
   if (!mid.messages.some((message) => message.speaker === 'A') || !mid.messages.some((message) => message.speaker === 'B')) {
     throw new Error('双方没有都发言');
   }
+  if (mid.reasoningPanels < 3) throw new Error(`思维链面板数量不足：${mid.reasoningPanels}`);
+  if (!mid.firstReasoning?.body?.includes('先确认本侧上下文')) throw new Error('思维链内容没有渲染');
+  if (!mid.firstReasoning?.summary?.includes('思维链')) throw new Error('思维链折叠标题缺失');
+  if (mid.firstReasoning.inMainBody) throw new Error('思维链混入了正文区域');
+  if (!mid.pills.includes('思维链 开启')) throw new Error('实验信息条未显示思考模式');
+  await screenshot('e2e-desktop-reasoning.png');
 
   // 暂停：点击后等当前一条落盘，再确认状态不再推进。
   await evaluate(`document.getElementById('btnPause').click(); true`);
@@ -225,6 +246,7 @@ async function main() {
   for (const request of requests) {
     if (request.body.messages.some((message) => message.role === 'system')) throw new Error('请求里出现 system prompt');
   }
+  if (requests[0].body.thinking?.type !== 'enabled') throw new Error('思考模式没有透传到上游请求');
   const first = requests[0].body.messages;
   if (first[0]?.content !== '请从“回声是否意味着孤独”开始，给出你的第一个观点。') throw new Error('A 的第一条输入不是启动词');
   if (first.some((message) => message.role === 'assistant')) throw new Error('A 的第一条请求不应带 assistant 历史');
@@ -294,7 +316,10 @@ async function main() {
   socket.close();
 }
 
-main().catch(async (error) => {
-  console.error('E2E FAIL:', error.message);
-  process.exitCode = 1;
-});
+main().then(
+  () => setTimeout(() => process.exit(0), 30),
+  (error) => {
+    console.error('E2E FAIL:', error.message);
+    setTimeout(() => process.exit(1), 30);
+  }
+);
