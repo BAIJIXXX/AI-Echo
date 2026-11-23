@@ -1818,7 +1818,7 @@ function handleNewSubmit(event) {
 
   const maxTurns = Math.min(
     MAX_TURNS_LIMIT,
-    Math.max(MIN_TURNS_LIMIT, Number.parseInt(els.maxTurns.value, 10) || 20)
+    Math.max(MIN_TURNS_LIMIT, Number.parseInt(els.maxTurns.value, 10) || 100)
   );
   const model = els.modelInput.value.trim() || state.settings.model;
   if (!model) {
